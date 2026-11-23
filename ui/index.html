@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Minidrone Ground Station</title>
+<link rel="icon" href="icon.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="bar">
+  <div class="brand">
+    <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><use href="#quad"/></svg>
+    <div><b>Ground Station</b><span>Minidrone 2026</span></div>
+  </div>
+
+  <nav class="modes" role="tablist">
+    <button id="tabLive" class="on" role="tab">Live</button>
+    <button id="tabFlights" role="tab">Flights</button>
+  </nav>
+
+  <div class="bar-right">
+    <div id="linkPill" class="pill idle"><i></i><span id="linkText">Waiting for drone</span></div>
+    <div id="recPill" class="pill rec" hidden><i></i>REC <span id="recTime">0:00</span></div>
+    <button id="btnConnect" class="ghost" title="Connection and setup">
+      <svg viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm7.4-2.6.1-.9-.1-.9 2-1.6-2-3.4-2.4 1a7 7 0 0 0-1.6-.9L15 3.6h-4l-.4 2.6c-.6.2-1.1.5-1.6.9l-2.4-1-2 3.4 2 1.6-.1.9.1.9-2 1.6 2 3.4 2.4-1c.5.4 1 .7 1.6.9l.4 2.6h4l.4-2.6c.6-.2 1.1-.5 1.6-.9l2.4 1 2-3.4-2-1.6Z"/></svg>
+      Setup
+    </button>
+  </div>
+</header>
+
+<main id="main">
+  <!-- source banner for replays -->
+  <div id="replayBanner" class="banner" hidden>
+    <span class="tag" id="replayKind">REPLAY</span>
+    <b id="replayName"></b>
+    <span class="muted" id="replayMeta"></span>
+    <button id="btnBackLive" class="ghost sm">Back to live</button>
+  </div>
+
+  <section class="grid">
+    <div class="card map-card">
+      <div class="card-h">
+        <h2>Flight path</h2>
+        <div class="legend" id="legend"></div>
+        <div class="seg" id="mapFrame" title="Map frame"></div>
+      </div>
+      <canvas id="map"></canvas>
+      <div class="map-foot muted" id="mapFoot"></div>
+
+      <div id="waiting" class="waiting">
+        <div class="radar"><span></span><span></span><span></span>
+          <svg viewBox="0 0 32 32"><use href="#quad"/></svg></div>
+        <h3>Waiting for the drone</h3>
+        <ol>
+          <li>Connect this laptop to the same Wi-Fi or cable as the drone.</li>
+          <li>Arm the drone. Telemetry starts the moment guidance runs.</li>
+          <li>Every flight is recorded automatically.</li>
+        </ol>
+        <div class="row">
+          <button id="btnDemo" class="primary">Play demo flight</button>
+          <button id="btnSetup2" class="ghost">Check connection</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="side">
+      <div class="card cam-card">
+        <div class="card-h"><h2>Drone camera</h2><span class="muted sm" id="camInfo">red mask · 160×120</span></div>
+        <div class="cam-wrap"><canvas id="cam" width="640" height="480"></canvas>
+          <div class="cam-empty" id="camEmpty">No image</div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><h2>Mission</h2><span class="muted sm" id="stateFor"></span></div>
+        <div class="stepper" id="stepper"></div>
+      </div>
+
+      <div class="tiles">
+        <div class="tile"><label>Altitude</label><b id="tAlt">--</b><small>m</small></div>
+        <div class="tile"><label>Heading</label><b id="tHdg">--</b><small>deg</small></div>
+        <div class="tile"><label>Speed</label><b id="tSpd">--</b><small>m/s</small></div>
+        <div class="tile"><label>Red under drone</label><b id="tRed">--</b><small>px</small></div>
+        <div class="tile"><label>Flight time</label><b id="tTime">--</b><small></small></div>
+        <div class="tile"><label>Link</label><b id="tLink">--</b><small>Hz</small></div>
+      </div>
+    </div>
+
+    <div class="card timeline">
+      <div class="card-h">
+        <h2>Altitude &amp; state</h2>
+        <div class="player" id="player" hidden>
+          <button id="btnPlay" class="icon" title="Play / pause (Space)">
+            <svg viewBox="0 0 24 24" id="icoPlay"><path d="M8 5v14l11-7z"/></svg>
+          </button>
+          <div class="seg" id="speedSeg"></div>
+          <span class="mono" id="playTime">0.0 s</span>
+        </div>
+      </div>
+      <canvas id="chart"></canvas>
+      <input type="range" id="scrub" min="0" max="0" step="1" value="0" hidden aria-label="Replay position">
+    </div>
+
+    <div class="card events">
+      <div class="card-h"><h2>Events</h2></div>
+      <ul id="events" class="evlist"></ul>
+    </div>
+  </section>
+</main>
+
+<!-- Flights sheet -->
+<section id="flights" class="page" hidden>
+  <div class="page-h">
+    <div><h1>Flights</h1><p class="muted">Recorded drone flights and simulation runs from <code>track_tests.m</code>. Click one to replay it.</p></div>
+    <button id="btnFolder" class="ghost">Open flights folder</button>
+  </div>
+  <h3 class="sec">Drone flights</h3>
+  <div class="flist" id="listRec"></div>
+  <h3 class="sec">Simulation runs</h3>
+  <div class="flist" id="listSim"></div>
+</section>
+
+<!-- Setup sheet -->
+<div id="sheet" class="sheet" hidden>
+  <div class="sheet-card" role="dialog" aria-labelledby="sheetTitle">
+    <div class="sheet-h"><h1 id="sheetTitle">Connection</h1><button class="icon" id="btnClose" title="Close">
+      <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" fill="none"/></svg></button></div>
+    <ul class="checks" id="checks"></ul>
+    <div class="field">
+      <label for="piHost">Raspberry Pi address</label>
+      <div class="row"><input id="piHost" placeholder="auto: from the drone or MATLAB" spellcheck="false">
+        <button id="btnSaveHost" class="ghost">Save</button></div>
+      <small class="muted" id="piHint"></small>
+    </div>
+    <details class="howto">
+      <summary>First time on a new laptop or drone build</summary>
+      <ol>
+        <li>In MATLAB, with the project open, run <code>enable_groundstation</code> once. It adds the telemetry sender to <code>PerceptionAndGuidance.slx</code>. Guidance logic is not changed.</li>
+        <li>Deploy as usual (<code>Step_2_Deploy_PerceptionModel</code> → Build, Deploy &amp; Start).</li>
+        <li>Open this app. Packets arrive as soon as the drone arms. No IP setup: the drone broadcasts on UDP 47800.</li>
+        <li>If nothing arrives, click <b>Allow</b> on the firewall row above.</li>
+      </ol>
+    </details>
+    <div class="sheet-f muted sm" id="sheetFoot"></div>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="quad" viewBox="0 0 32 32">
+    <g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+      <path d="M9 9l14 14M23 9 9 23"/>
+      <circle cx="7" cy="7" r="4.2"/><circle cx="25" cy="7" r="4.2"/>
+      <circle cx="7" cy="25" r="4.2"/><circle cx="25" cy="25" r="4.2"/>
+    </g>
+    <rect x="12.5" y="12.5" width="7" height="7" rx="2" fill="currentColor"/>
+  </symbol>
+</svg>
+<script src="app.js"></script>
+</body>
+</html>
