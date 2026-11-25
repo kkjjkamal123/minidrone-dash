@@ -205,11 +205,11 @@ def firewall_rule_present() -> bool | None:
 
 
 def add_firewall_rule(port: int = P.PORT) -> bool:
-    """Ask Windows (UAC prompt) to allow inbound telemetry on any network profile."""
+    """Ask Windows (UAC prompt) to allow inbound telemetry and PX4 MAVLink (14550, 14551) on any network profile."""
     if os.name != "nt":
         return False
     args = (f'advfirewall firewall add rule name="{RULE_NAME}" dir=in action=allow '
-            f'protocol=UDP localport={port} profile=any')
+            f'protocol=UDP localport={port},14550,14551 profile=any')
     ps = f"Start-Process netsh -ArgumentList '{args}' -Verb RunAs -WindowStyle Hidden -Wait"
     try:
         subprocess.run(["powershell", "-NoProfile", "-Command", ps], timeout=120, creationflags=NO_WINDOW)
@@ -247,15 +247,29 @@ class PiProbe(threading.Thread):
     def __init__(self, hub: Hub, settings: dict):
         super().__init__(daemon=True, name="probe")
         self.hub, self.settings = hub, settings
-        self.status = {"host": None, "reachable": None, "ms": None, "checked": 0}
+        self.status = {"host": None, "src": None, "reachable": None, "ms": None, "checked": 0}
+        self._own, self._own_t = set(), 0.0
 
-    def host(self) -> str | None:
-        return self.settings.get("pi_host") or self.hub.last_sender_ip() or self.settings.get("pi_host_matlab")
+    def own_ips(self) -> set:
+        if time.monotonic() - self._own_t > 30:
+            self._own, self._own_t = set(local_ips()), time.monotonic()
+        return self._own
+
+    def host(self) -> tuple[str | None, str | None]:
+        """Address to check, and where it came from. A sender on this laptop (fake_drone test) is not the Pi."""
+        if self.settings.get("pi_host"):
+            return self.settings["pi_host"], "set by you"
+        s = self.hub.last_sender_ip()
+        if s and s not in self.own_ips():
+            return s, "from telemetry"
+        if self.settings.get("pi_host_matlab"):
+            return self.settings["pi_host_matlab"], "from MATLAB settings"
+        return None, None
 
     def run(self):
         while True:
-            h = self.host()
-            st = {"host": h, "reachable": None, "ms": None, "checked": time.time()}
+            h, src = self.host()
+            st = {"host": h, "src": src, "reachable": None, "ms": None, "checked": time.time()}
             if h:
                 t = time.perf_counter()
                 try:

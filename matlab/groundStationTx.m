@@ -23,6 +23,7 @@ if coder.target('Rtw')
     pkt(13:60) = typecast(v, 'uint8');
 
     % 120x160 mask, column-major, 8 pixels per byte, LSB first
+    coder.loop.parallelize('never');   % tiny loop: no OpenMP threads / omp.h dependency on the Pi
     for k = 1:2400
         b = uint8(0);
         for j = 1:8

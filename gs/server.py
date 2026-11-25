@@ -10,10 +10,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import link, store
+from . import camera, link, mavlink, mission, store
 from . import protocol as P
 
-VERSION = "1.0.0"
+CRLF = bytes([13, 10])
+VERSION = "1.2.0"
 
 
 class App:
@@ -26,12 +27,17 @@ class App:
         self.settings["pi_host_matlab"] = link.matlab_pi_address()
         self.listener = link.UdpListener(self.hub, port)
         self.probe = link.PiProbe(self.hub, self.settings)
+        self.camera = camera.CameraLink(self.probe, self.settings)
+        self.fc = mavlink.FcLink(self.hub, self.settings)
+        self.mission = mission.Mission(self.probe, self.settings, self.camera)
         self.demo: link.Demo | None = None
         self._fw = {"present": None, "checked": 0.0}
 
     def start(self):
         self.listener.start()
         self.probe.start()
+        self.camera.start()
+        self.fc.start()
         threading.Thread(target=self._ticker, daemon=True).start()
 
     def _ticker(self):
@@ -46,7 +52,7 @@ class App:
             return {}
 
     def save_settings(self, patch: dict):
-        for k in ("pi_host", "theme", "trail"):
+        for k in ("pi_host", "theme", "trail", "fc_port", "fc_baud", "camera", "pi_user", "pi_password"):
             if k in patch:
                 self.settings[k] = patch[k]
         keep = {k: v for k, v in self.settings.items() if k != "pi_host_matlab"}
@@ -73,8 +79,12 @@ class App:
             "rate": h.rate(),
             "since_rx": round(time.monotonic() - h.last_rx, 1) if h.last_rx else None,
             "sender": h.last_sender,
-            "session": {"source": s["source"], "sender": s["sender"]} if s else None,
+            "session": {"source": s["source"], "sender": s["sender"],
+                        "elapsed": round((h.last_rx or s["start"]) - s["start"], 1)} if s else None,
             "pi": self.probe.status,
+            "camera": self.camera.status(),
+            "fc": self.fc.status(),
+            "mission": self.mission.status(),
             "settings": self.settings,
             "flights_dir": str(store.flights_dir()),
             "sim_dirs": [str(p) for p in store.sim_dirs()],
@@ -129,24 +139,59 @@ def make_handler(app: App):
             try:
                 if u.path == "/api/stream":
                     return self._stream()
+                if u.path == "/api/cam.mjpg":
+                    return self._mjpeg()
                 if u.path == "/api/status":
                     return self._json(app.status())
                 if u.path == "/api/flights":
                     return self._json(store.list_flights())
                 if u.path == "/api/flight":
                     return self._json(store.load(q.get("id", "")))
+                if u.path == "/api/mission/log":
+                    return self._json({"lines": app.mission.since(int(q.get("since") or 0)),
+                                       "status": app.mission.status()})
                 return self._static(u.path)
             except (ValueError, FileNotFoundError) as e:
                 return self._json({"error": str(e)}, 404)
             except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                 pass
 
+        def _trusted(self) -> bool:
+            # Commands can arm the drone: accept them only from this app's own page. A custom header
+            # forces a CORS preflight (which is never granted), and Host / Origin defeat DNS rebinding.
+            host = (self.headers.get("Host") or "").split(":")[0]
+            origin = self.headers.get("Origin")
+            return (self.headers.get("X-Ground-Station") == "1" and host in ("127.0.0.1", "localhost")
+                    and (origin is None or urlparse(origin).hostname in ("127.0.0.1", "localhost")))
+
         def do_POST(self):
             u = urlparse(self.path)
+            if not self._trusted():
+                return self._json({"error": "forbidden"}, 403)
             b = self._body()
             try:
+                if u.path == "/api/pi/action":
+                    return self._json(app.mission.run_pi(str(b.get("action", ""))))
+                if u.path == "/api/matlab/command":
+                    return self._json(app.mission.ml_queue(str(b.get("cmd", "")), str(b.get("arg") or "")))
+                if u.path == "/api/matlab/poll":
+                    return self._json(app.mission.ml_poll(b))
+                if u.path == "/api/matlab/started":
+                    app.mission.ml_started(b)
+                    return self._json({"ok": True})
+                if u.path == "/api/matlab/result":
+                    app.mission.ml_result(b)
+                    return self._json({"ok": True})
+                if u.path == "/api/fc/command":
+                    return self._json(app.fc.command(str(b.get("cmd", ""))))
+                if u.path == "/api/fc/source":
+                    want = str(b.get("port") or "udp")
+                    app.save_settings({"fc_port": want, "fc_baud": int(b.get("baud") or 57600)})
+                    app.fc.configure(want)
+                    return self._json({"ok": True, "fc": app.fc.status()})
                 if u.path == "/api/settings":
                     app.save_settings(b)
+                    app.camera.kick.set()
                     return self._json({"ok": True})
                 if u.path == "/api/firewall":
                     ok = link.add_firewall_rule(app.port)
@@ -180,6 +225,30 @@ def make_handler(app: App):
             self.send_header("Cache-Control", "no-cache")
             self.end_headers()
             self.wfile.write(body)
+
+        def _mjpeg(self):
+            cam = app.camera
+            self.send_response(200)
+            self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            seq = -1
+            try:
+                while True:
+                    with cam.cond:
+                        cam.cond.wait_for(lambda: cam.seq != seq, timeout=2.0)
+                        jpg, seq2 = cam.jpeg, cam.seq
+                    if jpg is None or seq2 == seq:
+                        continue
+                    seq = seq2
+                    head = b"--frame" + CRLF + b"Content-Type: image/jpeg" + CRLF
+                    head += b"Content-Length: " + str(len(jpg)).encode() + CRLF + CRLF
+                    self.wfile.write(head + jpg + CRLF)
+                    self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+                pass
+            self.close_connection = True
 
         def _stream(self):
             self.send_response(200)

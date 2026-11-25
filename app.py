@@ -78,8 +78,8 @@ def main():
     try:
         import webview
 
-        webview.create_window(TITLE, url, width=1440, height=900, min_size=(1100, 700),
-                              background_color="#0B0E13")
+        webview.create_window(TITLE, url, width=1440, height=900, min_size=(1000, 640), maximized=True,
+                              background_color="#1A1A1A")
         webview.start(gui="edgechromium" if os.name == "nt" else None)
     except Exception:
         # No WebView2: fall back to an Edge app window, then the default browser.

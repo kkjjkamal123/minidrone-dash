@@ -8,154 +8,304 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header class="bar">
-  <div class="brand">
-    <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><use href="#quad"/></svg>
-    <div><b>Ground Station</b><span>Minidrone 2026</span></div>
-  </div>
+<div class="backdrop" aria-hidden="true"><i class="b1"></i><i class="b2"></i><i class="b3"></i></div>
 
-  <nav class="modes" role="tablist">
-    <button id="tabLive" class="on" role="tab">Live</button>
-    <button id="tabFlights" role="tab">Flights</button>
-  </nav>
+<div class="shell">
+  <!-- sidebar ---------------------------------------------------------------->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-ico"><svg viewBox="0 0 32 32" aria-hidden="true"><use href="#quad"/></svg></div>
+      <div><b>Minidrone</b><small>Ground Station</small></div>
+    </div>
+    <nav aria-label="Sections">
+      <div class="nav-group">Fly</div>
+      <button class="nav" id="navMission"><svg viewBox="0 0 24 24"><use href="#i-rocket"/></svg><span>Mission</span><i class="livedot" id="navMlDot"></i></button>
+      <button class="nav on" id="navLive"><svg viewBox="0 0 24 24"><use href="#i-live"/></svg><span id="navLiveText">Live</span><i class="livedot" id="navDot"></i></button>
+      <button class="nav" id="navFlights"><svg viewBox="0 0 24 24"><use href="#i-list"/></svg><span>Flights</span><em id="flightCount"></em></button>
+      <button class="nav" id="btnDemoTop" title="Replay a simulation run as if the drone were flying"><svg viewBox="0 0 24 24"><use href="#i-play"/></svg><span>Demo flight</span></button>
+      <div class="nav-group">Setup</div>
+      <button class="nav" id="navConn"><svg viewBox="0 0 24 24"><use href="#i-plug"/></svg><span>Connection</span><em class="flag" id="connFlag" hidden>!</em></button>
+    </nav>
+    <div class="sb-spacer"></div>
+    <div class="linkcard">
+      <div class="lc-row"><i class="livedot" id="lcDot"></i><b id="lcName">Minidrone</b><span class="badge" id="lcBatt" hidden></span></div>
+      <div class="lc-sub mono" id="lcEndpoint">UDP 47800</div>
+      <div class="lc-sub" id="lcFc">Flight controller not connected</div>
+    </div>
+    <div class="sb-ver" id="sbVer"></div>
+  </aside>
 
-  <div class="bar-right">
-    <div id="linkPill" class="pill idle"><i></i><span id="linkText">Waiting for drone</span></div>
-    <div id="recPill" class="pill rec" hidden><i></i>REC <span id="recTime">0:00</span></div>
-    <button id="btnConnect" class="ghost" title="Connection and setup">
-      <svg viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm7.4-2.6.1-.9-.1-.9 2-1.6-2-3.4-2.4 1a7 7 0 0 0-1.6-.9L15 3.6h-4l-.4 2.6c-.6.2-1.1.5-1.6.9l-2.4-1-2 3.4 2 1.6-.1.9.1.9-2 1.6 2 3.4 2.4-1c.5.4 1 .7 1.6.9l.4 2.6h4l.4-2.6c.6-.2 1.1-.5 1.6-.9l2.4 1 2-3.4-2-1.6Z"/></svg>
-      Setup
-    </button>
-  </div>
-</header>
-
-<main id="main">
-  <!-- source banner for replays -->
-  <div id="replayBanner" class="banner" hidden>
-    <span class="tag" id="replayKind">REPLAY</span>
-    <b id="replayName"></b>
-    <span class="muted" id="replayMeta"></span>
-    <button id="btnBackLive" class="ghost sm">Back to live</button>
-  </div>
-
-  <section class="grid">
-    <div class="card map-card">
-      <div class="card-h">
-        <h2>Flight path</h2>
-        <div class="legend" id="legend"></div>
-        <div class="seg" id="mapFrame" title="Map frame"></div>
+  <div class="content">
+    <header class="toolbar">
+      <h1 id="pageTitle">Live</h1>
+      <div class="activity">
+        <span class="act-src" id="actSrc">LIVE</span>
+        <i class="livedot" id="actDot"></i>
+        <span id="actState">Waiting for drone</span>
+        <span class="act-ep mono" id="actEp"></span>
       </div>
-      <canvas id="map"></canvas>
-      <div class="map-foot muted" id="mapFoot"></div>
+      <div class="tb-r"><span id="recPill" class="rec" hidden><i></i>REC <span id="recTime" class="mono">0:00</span></span></div>
+    </header>
 
-      <div id="waiting" class="waiting">
-        <div class="radar"><span></span><span></span><span></span>
-          <svg viewBox="0 0 32 32"><use href="#quad"/></svg></div>
-        <h3>Waiting for the drone</h3>
-        <ol>
-          <li>Connect this laptop to the same Wi-Fi or cable as the drone.</li>
-          <li>Arm the drone. Telemetry starts the moment guidance runs.</li>
-          <li>Every flight is recorded automatically.</li>
-        </ol>
-        <div class="row">
-          <button id="btnDemo" class="primary">Play demo flight</button>
-          <button id="btnSetup2" class="ghost">Check connection</button>
-        </div>
-      </div>
+    <div id="replayBanner" class="infobar" hidden>
+      <span id="replayKind">Simulation</span>
+      <b id="replayName"></b>
+      <span id="replayMeta"></span>
+      <button id="btnBackLive" class="btn">Close replay</button>
     </div>
 
-    <div class="side">
-      <div class="card cam-card">
-        <div class="card-h"><h2>Drone camera</h2><span class="muted sm" id="camInfo">red mask · 160×120</span></div>
+    <!-- live / replay --------------------------------------------------------->
+    <main id="main" class="live">
+      <section class="card rail" id="rail" aria-label="Telemetry"></section>
+
+      <div class="col col-l">
+      <section class="card p-map">
+        <div class="ch"><h2>Map</h2><div class="legend" id="legend"></div><span class="ch-r" id="mapFoot"></span></div>
+        <div class="cb">
+          <canvas id="map"></canvas>
+          <div class="map-chips"><span class="chip"><b>pos</b><span id="tPos">--</span></span><span class="chip"><b>setpoint</b><span id="tSet">--</span></span></div>
+          <div id="waiting" class="waiting">
+            <h3>No telemetry yet</h3>
+            <p>The drone sends telemetry while guidance is running.</p>
+            <ol>
+              <li>Put this laptop on the same Wi-Fi or cable as the drone.</li>
+              <li>Arm the drone. Data appears here within a second.</li>
+              <li>Each flight is saved automatically under Flights.</li>
+            </ol>
+            <div class="row">
+              <button id="btnDemo" class="btn primary">Play a demo flight</button>
+              <button id="btnSetup2" class="btn">Check connection</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card p-time">
+        <div class="ch"><h2>Altitude</h2>
+          <div class="player" id="player" hidden>
+            <button id="btnPlay" class="btn icon" title="Play / pause (Space)">
+              <svg viewBox="0 0 24 24" id="icoPlay"><path d="M8 5v14l11-7z"/></svg>
+            </button>
+            <div class="seg" id="speedSeg"></div>
+            <span class="mono" id="playTime">0.0 s</span>
+          </div>
+        </div>
+        <div class="cb">
+          <canvas id="chart"></canvas>
+          <input type="range" id="scrub" min="0" max="0" step="1" value="0" hidden aria-label="Replay position">
+        </div>
+      </section>
+      </div>
+      <div class="col col-r">
+      <section class="card p-cam">
+        <div class="ch"><h2>Camera</h2>
+          <div class="cam-seg" id="camSeg" role="tablist"><button data-v="live" class="on">Live</button><button data-v="mask">Mask</button></div>
+          <span class="ch-r" id="camInfo"></span></div>
         <div class="cam-wrap"><canvas id="cam" width="640" height="480"></canvas>
+          <img id="camLive" alt="Live camera" hidden>
+          <span class="cam-badge" id="camBadge" hidden><i></i>LIVE</span>
           <div class="cam-empty" id="camEmpty">No image</div></div>
+      </section>
+
+      <section class="card p-ev">
+        <div class="ch"><h2>Events</h2><span class="ch-r" id="stateFor"></span></div>
+        <ul id="events" class="cb evlist"></ul>
+      </section>
       </div>
 
+
+    </main>
+
+    <!-- flights --------------------------------------------------------------->
+    <section id="flights" class="page" hidden>
+      <div class="page-intro"><span id="flightSummary"></span><button id="btnFolder" class="btn">Open flights folder</button></div>
       <div class="card">
-        <div class="card-h"><h2>Mission</h2><span class="muted sm" id="stateFor"></span></div>
-        <div class="stepper" id="stepper"></div>
+        <table class="grid-t">
+          <thead><tr>
+            <th class="w-name">Name</th><th>Date</th><th class="num">Duration</th><th class="num">Distance</th>
+            <th>Result</th><th class="w-prof">Time in each state</th><th class="w-act"></th>
+          </tr></thead>
+          <tbody id="flightRows"></tbody>
+        </table>
       </div>
+    </section>
 
-      <div class="tiles">
-        <div class="tile"><label>Altitude</label><b id="tAlt">--</b><small>m</small></div>
-        <div class="tile"><label>Heading</label><b id="tHdg">--</b><small>deg</small></div>
-        <div class="tile"><label>Speed</label><b id="tSpd">--</b><small>m/s</small></div>
-        <div class="tile"><label>Red under drone</label><b id="tRed">--</b><small>px</small></div>
-        <div class="tile"><label>Flight time</label><b id="tTime">--</b><small></small></div>
-        <div class="tile"><label>Link</label><b id="tLink">--</b><small>Hz</small></div>
-      </div>
-    </div>
-
-    <div class="card timeline">
-      <div class="card-h">
-        <h2>Altitude &amp; state</h2>
-        <div class="player" id="player" hidden>
-          <button id="btnPlay" class="icon" title="Play / pause (Space)">
-            <svg viewBox="0 0 24 24" id="icoPlay"><path d="M8 5v14l11-7z"/></svg>
-          </button>
-          <div class="seg" id="speedSeg"></div>
-          <span class="mono" id="playTime">0.0 s</span>
+    <!-- mission: MATLAB + Pi control ----------------------------------------------->
+    <section id="mission" class="page" hidden>
+      <div class="conn">
+        <div style="display:grid;gap:var(--gap)">
+          <div class="card">
+            <div class="ch"><h2>1 &middot; MATLAB</h2><span class="ch-r" id="mlState">not connected</span></div>
+            <div class="pad">
+              <p class="hint" id="mlHint" style="margin-top:0">In MATLAB run once:<br><code>addpath('C:\Users\kkjjk\minidrone-2026\minidrone_2026_tools\groundstation\matlab'); gs_bridge</code></p>
+              <div class="mrow">
+                <button class="btn" data-ml="check">Check model</button>
+                <button class="btn" data-ml="sim">Run sim test</button>
+                <button class="btn" data-ml="enable_tx" title="Adds the UDP telemetry sender (map, mask, state) to the flight model">Telemetry sender ON</button>
+                <button class="btn" data-ml="disable_tx">Telemetry sender OFF</button>
+              </div>
+              <div class="field"><input id="mlIp" placeholder="Pi address, e.g. 192.168.137.36" spellcheck="false"><button class="btn" id="btnMlIp">Set Pi address in model</button></div>
+              <table class="grid-t minfo"><tbody id="mlInfo"></tbody></table>
+            </div>
+          </div>
+          <div class="card">
+            <div class="ch"><h2>2 &middot; Raspberry Pi</h2><span class="ch-r" id="piState"></span></div>
+            <div class="pad">
+              <div class="mrow">
+                <button class="btn" data-pi="status">Pi status</button>
+                <button class="btn" data-pi="prepare" title="Stops pipewire, Wi-Fi power save off, CPU governor performance">Prepare Pi</button>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="ch"><h2>3 &middot; Deploy</h2></div>
+            <div class="pad">
+              <div class="mrow">
+                <button class="btn primary" data-ml="deploy">Build &amp; Deploy (no start)</button>
+                <button class="btn" data-ml="deploy_start">Build, Deploy &amp; Start</button>
+              </div>
+              <p class="hint">Takes a few minutes. Build output streams into the console.</p>
+            </div>
+          </div>
+          <div class="card">
+            <div class="ch"><h2>4 &middot; Fly</h2></div>
+            <div class="pad">
+              <div class="mrow">
+                <button class="btn primary" data-pi="start">Start model</button>
+                <button class="btn danger" data-pi="stop" data-confirm="1">Stop model</button>
+              </div>
+              <p class="hint">Starting the model does not arm. The pilot arms with the RC. Stop the model only after landing.</p>
+            </div>
+          </div>
+          <div class="card">
+            <div class="ch"><h2>5 &middot; After the flight</h2></div>
+            <div class="pad">
+              <div class="mrow">
+                <button class="btn" data-pi="fetch_log">Download Pi logs</button>
+                <button class="btn" data-pi="log">Show run log</button>
+                <button class="btn danger" data-pi="reboot" data-confirm="1">Reboot Pi</button>
+                <button class="btn danger" data-pi="shutdown" data-confirm="1">Shut down Pi</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="card mcon-card">
+          <div class="ch"><h2>Console</h2><span class="ch-r"><button class="btn" id="btnConClear">Clear</button></span></div>
+          <pre class="mconsole mono" id="mConsole"></pre>
         </div>
       </div>
-      <canvas id="chart"></canvas>
-      <input type="range" id="scrub" min="0" max="0" step="1" value="0" hidden aria-label="Replay position">
-    </div>
+    </section>
 
-    <div class="card events">
-      <div class="card-h"><h2>Events</h2></div>
-      <ul id="events" class="evlist"></ul>
-    </div>
-  </section>
-</main>
+    <!-- connection ------------------------------------------------------------>
+    <section id="conn" class="page" hidden>
+      <div class="conn">
+        <div style="display:grid;gap:var(--gap)">
+          <div class="card">
+            <div class="ch"><h2>Telemetry from the Raspberry Pi</h2></div>
+            <table class="grid-t checks"><tbody id="checks"></tbody></table>
+          </div>
+          <div class="card">
+            <div class="ch"><h2>Flight controller (safety controls)</h2><span class="ch-r" id="fcState"></span></div>
+            <div class="pad">
+              <p class="hint" style="margin-top:0">ARM, LAND and DISARM talk to PX4 on the Pixhawk over MAVLink,
+                not through the Pi. Pick how this laptop reaches the Pixhawk.</p>
+              <div class="field">
+                <select id="fcPort"></select>
+                <select id="fcBaud" style="flex:none;width:110px" title="Baud rate (serial only)">
+                  <option>57600</option><option>115200</option><option>921600</option>
+                </select>
+                <button id="btnFcConnect" class="btn">Connect</button>
+              </div>
+              <p class="hint" id="fcHint"></p>
+              <div class="note"><b>The RC transmitter stays the primary safety.</b> This flight controller runs the
+                MathWorks controller, which lands from the RC switch on channel 8, not from PX4's Land mode.
+                LAND here asks PX4 to land and then watches the altitude: if the drone does not descend within
+                3 s the bar turns red. Then use the RC land switch or DISARM. DISARM stops the motors at once,
+                even in the air.</div>
+            </div>
+          </div>
+        </div>
+        <div style="display:grid;gap:var(--gap)">
+          <div class="card">
+            <div class="ch"><h2>Raspberry Pi address</h2></div>
+            <div class="pad">
+              <div class="field">
+                <input id="piHost" placeholder="automatic" spellcheck="false">
+                <button id="btnSaveHost" class="btn">Save</button>
+              </div>
+              <p class="hint" id="piHint">Leave empty to use the address the drone sends from.</p>
+            </div>
+          </div>
+          <div class="card">
+            <div class="ch"><h2>Setting up a new drone build</h2></div>
+            <div class="pad">
+              <ol class="steps">
+                <li>In MATLAB, with the project open, run <code>enable_groundstation</code> once. It adds the
+                  telemetry sender next to <code>lineGuidance</code> in <code>PerceptionAndGuidance.slx</code>.
+                  Guidance logic is not changed.</li>
+                <li>Deploy as usual: <code>Step_2_Deploy_PerceptionModel</code>, then Build, Deploy &amp; Start.</li>
+                <li>Open this app. Data arrives as soon as the drone arms. The drone broadcasts on UDP 47800,
+                  so no IP address needs to be entered anywhere.</li>
+                <li>If nothing arrives, use <b>Allow</b> on the firewall check (needs admin).</li>
+              </ol>
+              <p class="hint">To remove the sender again: <code>disable_groundstation</code>.</p>
+              <p class="hint" id="sheetFoot"></p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
 
-<!-- Flights sheet -->
-<section id="flights" class="page" hidden>
-  <div class="page-h">
-    <div><h1>Flights</h1><p class="muted">Recorded drone flights and simulation runs from <code>track_tests.m</code>. Click one to replay it.</p></div>
-    <button id="btnFolder" class="ghost">Open flights folder</button>
-  </div>
-  <h3 class="sec">Drone flights</h3>
-  <div class="flist" id="listRec"></div>
-  <h3 class="sec">Simulation runs</h3>
-  <div class="flist" id="listSim"></div>
-</section>
+    <!-- safety / command bar: on every page -------------------------------------->
+    <footer class="cmdbar" id="cmdbar">
+      <div class="vstate">
+        <div class="eb"><i class="livedot" id="vDot"></i>Vehicle</div>
+        <b id="vState">No link</b>
+      </div>
+      <div class="bar-div"></div>
+      <div class="cmd-mid">
+        <div class="timeline" id="timeline"></div>
+        <div class="status-line" id="statusLine">No flight controller link. Commands disabled: use the RC.</div>
+      </div>
+      <div class="cmd-btns">
+        <button class="hold arm" id="btnArm" data-cmd="arm" data-ms="1000" disabled title="Press and hold to arm">
+          <span class="ring"><svg viewBox="0 0 20 20"><circle class="bg" cx="10" cy="10" r="8"/><circle class="fg" cx="10" cy="10" r="8"/></svg><i>▲</i></span><span>ARM</span></button>
+        <button class="hold land" id="btnLand" data-cmd="land" data-ms="600" disabled title="Press and hold to land where the drone is">
+          <span class="ring"><svg viewBox="0 0 20 20"><circle class="bg" cx="10" cy="10" r="8"/><circle class="fg" cx="10" cy="10" r="8"/></svg><i>▼</i></span><span>LAND</span></button>
+      </div>
+      <div class="bar-div"></div>
+      <button class="hold kill" id="btnKill" data-cmd="disarm" data-ms="500" disabled title="Press and hold: motors stop immediately, even in the air">
+        <span class="ring"><svg viewBox="0 0 20 20"><circle class="bg" cx="10" cy="10" r="8"/><circle class="fg" cx="10" cy="10" r="8"/></svg><i>✕</i></span><span>DISARM</span></button>
+    </footer>
 
-<!-- Setup sheet -->
-<div id="sheet" class="sheet" hidden>
-  <div class="sheet-card" role="dialog" aria-labelledby="sheetTitle">
-    <div class="sheet-h"><h1 id="sheetTitle">Connection</h1><button class="icon" id="btnClose" title="Close">
-      <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" fill="none"/></svg></button></div>
-    <ul class="checks" id="checks"></ul>
-    <div class="field">
-      <label for="piHost">Raspberry Pi address</label>
-      <div class="row"><input id="piHost" placeholder="auto: from the drone or MATLAB" spellcheck="false">
-        <button id="btnSaveHost" class="ghost">Save</button></div>
-      <small class="muted" id="piHint"></small>
-    </div>
-    <details class="howto">
-      <summary>First time on a new laptop or drone build</summary>
-      <ol>
-        <li>In MATLAB, with the project open, run <code>enable_groundstation</code> once. It adds the telemetry sender to <code>PerceptionAndGuidance.slx</code>. Guidance logic is not changed.</li>
-        <li>Deploy as usual (<code>Step_2_Deploy_PerceptionModel</code> → Build, Deploy &amp; Start).</li>
-        <li>Open this app. Packets arrive as soon as the drone arms. No IP setup: the drone broadcasts on UDP 47800.</li>
-        <li>If nothing arrives, click <b>Allow</b> on the firewall row above.</li>
-      </ol>
-    </details>
-    <div class="sheet-f muted sm" id="sheetFoot"></div>
+    <div id="toast" class="toast" hidden></div>
   </div>
 </div>
 
-<div id="toast" class="toast" hidden></div>
-
-<svg width="0" height="0" style="position:absolute">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <symbol id="quad" viewBox="0 0 32 32">
-    <g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+    <g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
       <path d="M9 9l14 14M23 9 9 23"/>
       <circle cx="7" cy="7" r="4.2"/><circle cx="25" cy="7" r="4.2"/>
       <circle cx="7" cy="25" r="4.2"/><circle cx="25" cy="25" r="4.2"/>
     </g>
-    <rect x="12.5" y="12.5" width="7" height="7" rx="2" fill="currentColor"/>
+    <rect x="12.5" y="12.5" width="7" height="7" rx="1.5" fill="currentColor"/>
   </symbol>
+  <g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <symbol id="i-live" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none"/><path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4M4.9 4.9a10 10 0 0 0 0 14.2M19.1 4.9a10 10 0 0 1 0 14.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="4" cy="6" r="1.2" fill="currentColor"/><circle cx="4" cy="12" r="1.2" fill="currentColor"/><circle cx="4" cy="18" r="1.2" fill="currentColor"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M10 8.5v7l5.5-3.5z" fill="currentColor"/></symbol>
+    <symbol id="i-rocket" viewBox="0 0 24 24"><path d="M12 3c3 2 4.5 5 4.5 9l-2 3h-5l-2-3c0-4 1.5-7 4.5-9zM9.5 15l-2.5 3 3-.5M14.5 15l2.5 3-3-.5M12 21v-3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="9.5" r="1.6" fill="currentColor"/></symbol>
+    <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 3v5M15 3v5M6.5 8h11v3a5.5 5.5 0 0 1-11 0zM12 16.5V21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-alt" viewBox="0 0 24 24"><path d="M12 3v18M8 7l4-4 4 4M8 17l4 4 4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-hdg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 6l3 8-3-2-3 2z" fill="currentColor"/></symbol>
+    <symbol id="i-spd" viewBox="0 0 24 24"><path d="M4 16a8 8 0 1 1 16 0M12 16l4-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-red" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 14l5-4 5 5 6-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+    <symbol id="i-time" viewBox="0 0 24 24"><circle cx="12" cy="13" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 9v4l2.5 2.5M10 2h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M5 12.5a10 10 0 0 1 14 0M8 15.5a5.5 5.5 0 0 1 8 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="19" r="1.5" fill="currentColor"/></symbol>
+    <symbol id="i-bat" viewBox="0 0 24 24"><rect x="3" y="7" width="16" height="10" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M21 10.5v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  </g>
+  <symbol id="i-chev" viewBox="0 0 8 8"><path d="M2.5 1l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
 </svg>
 <script src="app.js"></script>
 </body>

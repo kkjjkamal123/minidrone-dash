@@ -171,12 +171,22 @@ def _cached_meta(path: Path, loader):
     return meta
 
 
+def _recordings() -> list[Path]:
+    """Drone recordings, oldest first, so "Flight N" numbers stay stable as new flights arrive."""
+    return sorted(flights_dir().glob("*.mdgs"), key=lambda p: p.stat().st_mtime)
+
+
+def _flight_name(p: Path, recs: list[Path]) -> str:
+    n = recs.index(p) + 1 if p in recs else 0
+    return f"Flight {n}" if n else "Flight"
+
+
 def list_flights() -> list[dict]:
     out = []
-    for p in sorted(flights_dir().glob("*.mdgs"), key=lambda p: p.stat().st_mtime, reverse=True):
+    recs = _recordings()
+    for p in reversed(recs):
         meta = _cached_meta(p, lambda q: summarize(read_recording(q)[1]))
-        when = dt.datetime.fromtimestamp(p.stat().st_mtime)
-        out.append({"id": "rec:" + p.name, "kind": "flight", "name": "Flight at " + when.strftime("%H:%M:%S"),
+        out.append({"id": "rec:" + p.name, "kind": "flight", "name": _flight_name(p, recs),
                     "when": dt.datetime.fromtimestamp(p.stat().st_mtime).isoformat(timespec="minutes"), **meta})
     for d in sim_dirs():
         for p in sorted(d.glob("track_*.mat")):
@@ -193,7 +203,7 @@ def load(fid: str) -> dict:
     if kind == "rec":
         p = flights_dir() / Path(ref).name
         sender, frames = read_recording(p)
-        return {"id": fid, "kind": "flight", "name": p.stem, "sender": sender, "track": None,
+        return {"id": fid, "kind": "flight", "name": _flight_name(p, _recordings()), "sender": sender, "track": None,
                 "frames": frames, "summary": summarize(frames)}
     if kind == "sim":
         p = Path(ref)

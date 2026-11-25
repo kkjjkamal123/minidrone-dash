@@ -10,7 +10,7 @@ python -m PyInstaller --noconfirm --clean --onefile --windowed `
     --name "Minidrone Ground Station" `
     --icon "$PSScriptRoot\ui\icon.ico" `
     --add-data "$PSScriptRoot\ui;ui" `
-    --hidden-import scipy.io `
+    --hidden-import scipy.io --hidden-import paramiko `
     --exclude-module matplotlib --exclude-module tkinter --exclude-module playwright `
     --exclude-module IPython --exclude-module pandas `
     --distpath dist --workpath build/pyinstaller --specpath build `
