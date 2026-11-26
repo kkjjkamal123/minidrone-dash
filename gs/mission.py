@@ -290,7 +290,7 @@ class Mission:
         if self.ml_running or self.ml_pending:
             raise ValueError(f"MATLAB is busy: {(self.ml_running or self.ml_pending)['cmd']}")
         if cmd == "set_ip" and not re.fullmatch(r"\d{1,3}(\.\d{1,3}){3}", arg or ""):
-            raise ValueError("Enter an IPv4 address like 192.168.137.36")
+            raise ValueError("Enter an IPv4 address like 192.168.137.177")
         if not self.ml_connected():
             if cmd == "quit":
                 raise ValueError("MATLAB is not running.")
