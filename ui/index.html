@@ -135,14 +135,16 @@
       <div class="conn">
         <div style="display:grid;gap:var(--gap)">
           <div class="card">
-            <div class="ch"><h2>1 &middot; MATLAB</h2><span class="ch-r" id="mlState">not connected</span></div>
+            <div class="ch"><h2>1 &middot; Model (MATLAB runs hidden)</h2><span class="ch-r" id="mlState">not running</span></div>
             <div class="pad">
-              <p class="hint" id="mlHint" style="margin-top:0">In MATLAB run once:<br><code>addpath('C:\Users\kkjjk\minidrone-2026\minidrone_2026_tools\groundstation\matlab'); gs_bridge</code></p>
+              <p class="hint" id="mlHint" style="margin-top:0">You never need to open MATLAB: any button here starts it in the background
+                (about 30-60 s the first time) and it stays ready. <span id="mlExe" class="mono"></span></p>
               <div class="mrow">
                 <button class="btn" data-ml="check">Check model</button>
                 <button class="btn" data-ml="sim">Run sim test</button>
                 <button class="btn" data-ml="enable_tx" title="Adds the UDP telemetry sender (map, mask, state) to the flight model">Telemetry sender ON</button>
                 <button class="btn" data-ml="disable_tx">Telemetry sender OFF</button>
+                <button class="btn" data-ml="quit" id="btnMlQuit">Close MATLAB</button>
               </div>
               <div class="field"><input id="mlIp" placeholder="Pi address, e.g. 192.168.137.36" spellcheck="false"><button class="btn" id="btnMlIp">Set Pi address in model</button></div>
               <table class="grid-t minfo"><tbody id="mlInfo"></tbody></table>
@@ -154,7 +156,11 @@
               <div class="mrow">
                 <button class="btn" data-pi="status">Pi status</button>
                 <button class="btn" data-pi="prepare" title="Stops pipewire, Wi-Fi power save off, CPU governor performance">Prepare Pi</button>
+                <button class="btn primary" data-pi="autostart_on" title="Model starts by itself at every Pi boot and waits; the mission starts when you arm">Autostart ON</button>
+                <button class="btn" data-pi="autostart_off">Autostart OFF</button>
               </div>
+              <p class="hint" style="margin:0">With autostart ON: battery in, the Pi boots and the model starts and waits on the ground.
+                Arm with the RC and the mission runs. No laptop needed.</p>
             </div>
           </div>
           <div class="card">
@@ -171,10 +177,11 @@
             <div class="ch"><h2>4 &middot; Fly</h2></div>
             <div class="pad">
               <div class="mrow">
-                <button class="btn primary" data-pi="start">Start model</button>
+                <button class="btn primary" data-pi="start" title="Starts the model, or restarts it with fresh guidance state">Start / restart model</button>
                 <button class="btn danger" data-pi="stop" data-confirm="1">Stop model</button>
               </div>
-              <p class="hint">Starting the model does not arm. The pilot arms with the RC. Stop the model only after landing.</p>
+              <p class="hint">The model waits on the ground; guidance starts when the drone is armed with the RC.
+                Restart the model between attempts (guidance keeps its state), or just power-cycle. Stop only after landing.</p>
             </div>
           </div>
           <div class="card">
@@ -189,9 +196,32 @@
             </div>
           </div>
         </div>
+        <div style="display:grid;gap:var(--gap);align-content:start">
+        <div class="card">
+          <div class="ch"><h2>Camera &amp; red tuning</h2><span class="ch-r" id="tuneState"></span></div>
+          <div class="pad">
+            <div class="tune-wrap">
+              <div class="tune-pane"><img id="tuneImg" alt="Pi camera"><span class="hint">Camera (640x480)</span></div>
+              <div class="tune-pane"><canvas id="tuneMask" width="160" height="120"></canvas><span class="hint">Mask the model sees (160x120)</span></div>
+            </div>
+            <div class="field tune-row">
+              <label for="tuneThr">Red threshold <b id="tuneThrV">40</b></label>
+              <input type="range" id="tuneThr" min="0" max="150" step="1" value="40">
+              <span class="mono" id="tuneCount"></span>
+            </div>
+            <p class="hint" style="margin:0 0 8px">Rule: red = R - max(G, B) &gt; threshold, same as the model. Line under the drone should be solid; floor, paper and shoes should stay black. x70 uses 40, Vishnu's model 50.</p>
+            <div class="mrow">
+              <button class="btn" id="btnPhoto">Take photo</button>
+              <button class="btn" id="btnRec">Record video</button>
+              <button class="btn" id="btnCapFolder">Open captures folder</button>
+            </div>
+            <p class="hint" style="margin:0">Live camera works only while the model is stopped (the model owns the camera).</p>
+          </div>
+        </div>
         <div class="card mcon-card">
           <div class="ch"><h2>Console</h2><span class="ch-r"><button class="btn" id="btnConClear">Clear</button></span></div>
           <pre class="mconsole mono" id="mConsole"></pre>
+        </div>
         </div>
       </div>
     </section>

@@ -7,8 +7,13 @@ diary file that this module tails so the build output appears live.
 """
 from __future__ import annotations
 
+import glob
 import itertools
+import os
 import re
+import shutil
+import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -24,6 +29,7 @@ ENV = "export XDG_RUNTIME_DIR=/run/user/$(id -u); "
 PI_ACTIONS = {
     "status": ENV + (
         "echo \"model: $(pgrep -f " + PAT + " >/dev/null && echo RUNNING pid $(pgrep -f " + PAT + " | head -1) || echo stopped)\"; "
+        "echo \"autostart at boot: $(systemctl is-enabled minidrone 2>/dev/null || echo off)\"; "
         "echo \"uptime: $(uptime -p)\"; "
         "echo \"power: $(vcgencmd get_throttled 2>/dev/null) (0x0 = never under-voltage)\"; "
         "echo \"temp: $(vcgencmd measure_temp 2>/dev/null)\"; "
@@ -47,26 +53,89 @@ PI_ACTIONS = {
         "echo 'Pi prepared.'"
     ),
     "start": ENV + (
-        "if pgrep -f " + PAT + " >/dev/null; then echo 'Model is already running.'; exit 0; fi; "
         "if [ ! -f " + ELF + " ]; then echo 'Model not deployed: run Build & Deploy first.'; exit 1; fi; "
         "systemctl --user stop wireplumber pipewire pipewire.socket 2>/dev/null; pkill -f '[r]picam-vid'; "
+        "if [ -f /etc/systemd/system/minidrone.service ]; then sudo systemctl restart minidrone; "
+        "else pgrep -f " + PAT + " >/dev/null && { sudo pkill -INT -f " + PAT + "; sleep 2; }; "
         "[ -f " + RUNLOG + " ] && mv " + RUNLOG + " ~/pg_run_$(date +%m%d_%H%M%S).log; "
-        "nohup sudo nice -n -10 " + ELF + " > " + RUNLOG + " 2>&1 < /dev/null & "
-        "sleep 3; if pgrep -f " + PAT + " >/dev/null; then echo \"Model RUNNING (pid $(pgrep -f " + PAT + " | head -1)).\"; "
+        "nohup sudo nice -n -10 " + ELF + " > " + RUNLOG + " 2>&1 < /dev/null & fi; "
+        "sleep 4; if pgrep -f " + PAT + " >/dev/null; then echo \"Model RUNNING (pid $(pgrep -f " + PAT + " | head -1)). "
+        "It waits on the ground; guidance starts when the drone is armed.\"; "
         "else echo 'Model exited right away:'; fi; tail -n 8 " + RUNLOG
     ),
     "stop": (
-        "if ! pgrep -f " + PAT + " >/dev/null; then echo 'Model was not running.'; exit 0; fi; "
-        "sudo pkill -INT -f " + PAT + "; sleep 2; "
-        "pgrep -f " + PAT + " >/dev/null && { sudo pkill -KILL -f " + PAT + "; sleep 1; }; "
+        "[ -f /etc/systemd/system/minidrone.service ] && sudo systemctl stop minidrone; "
+        "if pgrep -f " + PAT + " >/dev/null; then sudo pkill -INT -f " + PAT + "; sleep 2; "
+        "pgrep -f " + PAT + " >/dev/null && { sudo pkill -KILL -f " + PAT + "; sleep 1; }; fi; "
         "pgrep -f " + PAT + " >/dev/null && echo 'Still running!' || echo 'Model stopped.'"
+    ),
+    # Model starts by itself at every boot (battery in = model waiting; arm = mission starts).
+    "autostart_on": ENV + (
+        # quoted heredoc (no expansion); __HOME__ is replaced with the login user's home afterwards
+        "sudo tee /usr/local/bin/minidrone-run.sh >/dev/null <<'EOF'\n"
+        "#!/bin/sh\n"
+        "# Started by minidrone.service (Ground Station Mission page). Runs the flight model.\n"
+        "LOG=__HOME__/pg_run.log\n"
+        "[ -f $LOG ] && mv $LOG __HOME__/pg_run_$(date +%m%d_%H%M%S).log\n"
+        "iw dev wlan0 set power_save off 2>/dev/null\n"
+        "for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo performance > $g; done\n"
+        "pkill -x rpicam-vid\n"
+        "i=0; while [ ! -e /dev/ttyACM0 ] && [ $i -lt 60 ]; do sleep 0.5; i=$((i+1)); done\n"
+        "cd __HOME__/MATLAB_ws/R2026b\n"
+        "exec nice -n -10 ./PerceptionAndGuidance.elf >> $LOG 2>&1\n"
+        "EOF\n"
+        "sudo sed -i \"s#__HOME__#$HOME#g\" /usr/local/bin/minidrone-run.sh; "
+        "sudo chmod 755 /usr/local/bin/minidrone-run.sh; "
+        "sudo tee /etc/systemd/system/minidrone.service >/dev/null <<EOF\n"
+        "[Unit]\n"
+        "Description=Minidrone flight model (PerceptionAndGuidance)\n"
+        "After=multi-user.target\n"
+        "[Service]\n"
+        "Type=simple\n"
+        "ExecStart=/usr/local/bin/minidrone-run.sh\n"
+        "Restart=on-failure\n"
+        "RestartSec=3\n"
+        "KillSignal=SIGINT\n"
+        "[Install]\n"
+        "WantedBy=multi-user.target\n"
+        "EOF\n"
+        "sudo systemctl --global mask pipewire.socket pipewire.service wireplumber.service 2>&1 | tail -1; "
+        "systemctl --user stop wireplumber pipewire pipewire.socket 2>/dev/null; "
+        "sudo systemctl daemon-reload && sudo systemctl enable minidrone 2>&1 | tail -1; "
+        "echo \"autostart: $(systemctl is-enabled minidrone)\"; "
+        "echo 'From now on the model starts by itself when the Pi boots, waits on the ground, and the mission starts when you arm.'"
+    ),
+    "autostart_off": (
+        "sudo systemctl disable minidrone 2>&1 | tail -1; "
+        "echo \"autostart: $(systemctl is-enabled minidrone 2>/dev/null || echo off)\"; "
+        "echo 'The model no longer starts at boot (a running model keeps running: use Stop model).'"
     ),
     "log": "tail -n 40 " + RUNLOG + " 2>/dev/null || echo '(no run log yet)'",
     "reboot": "sudo systemctl reboot; echo 'Pi rebooting (about 40 s).'",
     "shutdown": "sudo systemctl poweroff; echo 'Pi shutting down. Wait for the green LED to stop before unplugging.'",
 }
 
-MATLAB_ACTIONS = ("check", "deploy", "deploy_start", "enable_tx", "disable_tx", "set_ip", "sim")
+MATLAB_ACTIONS = ("check", "deploy", "deploy_start", "enable_tx", "disable_tx", "set_ip", "sim", "quit")
+
+
+def find_matlab(settings: dict) -> str | None:
+    """matlab.exe: the path saved in settings, else the newest install under the user folder or Program Files."""
+    p = settings.get("matlab_exe")
+    if p and Path(p).is_file():
+        return p
+    home = os.environ.get("USERPROFILE", str(Path.home()))
+    found = glob.glob(os.path.join(home, "MATLAB", "R20*", "bin", "matlab.exe"))
+    found += glob.glob(os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "MATLAB", "R20*", "bin", "matlab.exe"))
+    return sorted(found)[-1] if found else None
+
+
+def bridge_dir() -> Path:
+    """Copy the MATLAB side (gs_bridge.m, hwsim, telemetry sender) next to the flights, where MATLAB can find it."""
+    src = Path(__file__).resolve().parent.parent / "matlab"
+    dst = store.data_dir() / "matlab"
+    if src.is_dir():
+        shutil.copytree(src, dst, dirs_exist_ok=True)
+    return dst
 
 
 class Mission:
@@ -84,6 +153,9 @@ class Mission:
         self.ml_info: dict = {}
         self.ml_diary: str | None = None
         self._diary_pos = 0
+        self.port = 47801                 # the HTTP port MATLAB polls (app.py sets the real one)
+        self._ml_proc: subprocess.Popen | None = None
+        self._ml_launched = 0.0
 
     # ---- console ----
     def say(self, src: str, text: str):
@@ -177,26 +249,91 @@ class Mission:
     def ml_connected(self) -> bool:
         return time.time() - self.ml_last_poll < 4 or self.ml_running is not None
 
+    def ml_launch(self):
+        """Start a hidden MATLAB (-batch) running gs_bridge('serve'). It connects in about half a minute."""
+        if self._ml_proc and self._ml_proc.poll() is None:
+            return
+        exe = find_matlab(self.settings)
+        if not exe:
+            raise ValueError("MATLAB not found (looked in your user folder's MATLAB and in Program Files).")
+        bdir = str(bridge_dir()).replace("'", "''")
+        log = store.data_dir() / "matlab_bridge.log"
+        self.say("matlab", f"Starting MATLAB in the background ({exe}). It takes about 30-60 s.")
+        flags = 0x08000000 if os.name == "nt" else 0          # CREATE_NO_WINDOW
+        self._ml_proc = subprocess.Popen(
+            [exe, "-batch", f"addpath('{bdir}'); gs_bridge('serve', {self.port})"],
+            stdout=open(log, "wb"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+            creationflags=flags, cwd=str(store.data_dir()))
+        self._ml_launched = time.time()
+        threading.Thread(target=self._watch_ml, daemon=True).start()
+
+    def _watch_ml(self):
+        proc = self._ml_proc
+        if not proc:
+            return
+        proc.wait()
+        if self.ml_running or self.ml_pending:
+            self.say("matlab", f"FAILED: MATLAB exited (code {proc.returncode}) - see "
+                     f"{store.data_dir() / 'matlab_bridge.log'}")
+            try:
+                tail = (store.data_dir() / "matlab_bridge.log").read_text(errors="replace").splitlines()[-8:]
+                self.say("matlab", "\n".join(tail))
+            except OSError:
+                pass
+            self.ml_running = self.ml_pending = None
+        else:
+            self.say("matlab", "MATLAB closed.")
+
     def ml_queue(self, cmd: str, arg: str = "") -> dict:
         if cmd not in MATLAB_ACTIONS:
             raise ValueError(f"unknown MATLAB action {cmd}")
-        if not self.ml_connected():
-            raise ValueError("MATLAB is not connected. In MATLAB run:  gs_bridge")
         if self.ml_running or self.ml_pending:
             raise ValueError(f"MATLAB is busy: {(self.ml_running or self.ml_pending)['cmd']}")
         if cmd == "set_ip" and not re.fullmatch(r"\d{1,3}(\.\d{1,3}){3}", arg or ""):
             raise ValueError("Enter an IPv4 address like 192.168.137.36")
-        if cmd in ("deploy", "deploy_start") and self.camera:
-            self.camera.hold(600)          # building on the Pi and starting the model: keep the preview off
-        self.ml_pending = {"id": next(self._ids), "cmd": cmd, "arg": arg or "", "queued": time.time()}
+        if not self.ml_connected():
+            if cmd == "quit":
+                raise ValueError("MATLAB is not running.")
+            self.ml_launch()
+        job = {"id": next(self._ids), "cmd": cmd, "arg": arg or "", "queued": time.time(), "ready": True}
+        if cmd in ("deploy", "deploy_start"):
+            if self.camera:
+                self.camera.hold(600)      # building on the Pi and starting the model: keep the preview off
+            host = self.pi_host()
+            if host and self.probe.status.get("reachable"):
+                # a running model holds its .elf open, so the new build could not replace it: stop it first
+                job["ready"] = False
+                threading.Thread(target=self._stop_then_release, args=(job, host), daemon=True).start()
+        self.ml_pending = job
         self.say("matlab", f"> {cmd} {arg}".rstrip())
         return {"ok": True}
+
+    def _stop_then_release(self, job: dict, host: str):
+        self.say("pi", "Stopping the model on the Pi before the new build...")
+        try:
+            self.say("pi", self._ssh(host, PI_ACTIONS["stop"]))
+        except Exception as ex:   # noqa: BLE001
+            self.say("pi", f"could not stop the model ({ex}); building anyway")
+        job["ready"] = True
+
+    def _ssh(self, host: str, cmd: str, timeout: float = 40) -> str:
+        import paramiko
+        c = paramiko.SSHClient()
+        c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        c.connect(host, username=self.settings.get("pi_user") or "rpi",
+                  password=self.settings.get("pi_password") or "rpib",
+                  timeout=8, banner_timeout=8, auth_timeout=8, look_for_keys=False, allow_agent=False)
+        try:
+            _, o, e = c.exec_command(cmd, timeout=timeout)
+            return o.read().decode(errors="replace") + e.read().decode(errors="replace")
+        finally:
+            c.close()
 
     def ml_poll(self, body: dict) -> dict:
         self.ml_last_poll = time.time()
         if isinstance(body.get("info"), dict):
             self.ml_info = body["info"]
-        if self.ml_pending and not self.ml_running:
+        if self.ml_pending and not self.ml_running and self.ml_pending.get("ready", True):
             job, self.ml_pending = self.ml_pending, None
             self.ml_running = dict(job, started=time.time())
             return job
@@ -246,6 +383,9 @@ class Mission:
                 "since_poll": round(time.time() - self.ml_last_poll, 1) if self.ml_last_poll else None,
                 "running": {"cmd": run["cmd"], "elapsed": round(time.time() - run["started"])} if run else None,
                 "pending": self.ml_pending["cmd"] if self.ml_pending else None,
+                "launching": round(time.time() - self._ml_launched) if (
+                    self._ml_proc and self._ml_proc.poll() is None and not self.ml_connected()) else None,
+                "matlab_exe": find_matlab(self.settings),
                 "info": self.ml_info,
             },
         }

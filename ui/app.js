@@ -944,13 +944,15 @@ function mRender() {
   const st = M.st; if (!st) return;
   const ml = st.matlab;
   const run = ml.running ? `running ${ml.running.cmd} (${ml.running.elapsed} s)` : ml.pending ? `queued ${ml.pending}` : null;
-  $("mlState").textContent = ml.connected ? (run || "connected, idle") : "NOT CONNECTED";
-  $("mlState").className = "ch-r " + (ml.connected ? "st-ok" : "st-bad");
-  $("mlHint").hidden = !!ml.connected;
+  $("mlState").textContent = ml.launching != null ? `starting MATLAB (${ml.launching} s)${ml.pending ? ", then " + ml.pending : ""}`
+    : ml.connected ? (run || "MATLAB ready") : ml.matlab_exe ? "MATLAB not running (starts on first click)" : "MATLAB NOT FOUND";
+  $("mlState").className = "ch-r " + (ml.connected ? "st-ok" : ml.launching != null ? "" : ml.matlab_exe ? "" : "st-bad");
+  $("mlExe").textContent = ml.matlab_exe ? "" : "MATLAB was not found on this laptop.";
   $("navMlDot").classList.toggle("on", !!ml.connected);
-  const mlBusy = !ml.connected || !!ml.running || !!ml.pending;
+  const mlBusy = !!ml.running || !!ml.pending || !ml.matlab_exe;
   document.querySelectorAll("[data-ml]").forEach((b) => (b.disabled = mlBusy));
   $("btnMlIp").disabled = mlBusy;
+  $("btnMlQuit").disabled = !ml.connected || !!ml.running;
   const pi = (S.status && S.status.pi) || {};
   const piTxt = st.pi_busy ? `busy: ${st.pi_busy}` : !st.pi_host ? "no address (Connection page)" :
     pi.reachable ? `${st.pi_host} reachable (${pi.ms} ms)` : `${st.pi_host} NOT reachable`;
@@ -960,7 +962,7 @@ function mRender() {
   const i = ml.info || {};
   const rows = [["Pi target", i.pi], ["Simulation flag", i.simulation === undefined ? "" : String(i.simulation), i.simulation === 0],
     ["Stop time", i.tfinal, i.tfinal === "Inf"], ["External mode", i.extmode, i.extmode === "off"],
-    ["Guidance", i.guidance, /x7\d/.test(i.guidance || "") && !/FALSE/.test(i.guidance || "")],
+    ["Guidance", i.guidance, /HARDWARE = true/.test(i.guidance || "")],
     ["Camera", i.camera], ["Telemetry sender", i.tx], ["Unsaved changes", i.dirty]];
   $("mlInfo").innerHTML = i.loaded
     ? rows.map(([k, v, ok]) => `<tr><td class="c-name">${k}</td><td class="${ok === undefined ? "" : ok ? "st-ok" : "st-bad"}">${mEsc(v ?? "")}</td></tr>`).join("")
@@ -996,3 +998,54 @@ $("btnMlIp").onclick = async () => {
 };
 $("btnConClear").onclick = () => { $("mConsole").textContent = ""; };
 if (location.hash === "#mission") showPage("mission");
+
+/* ---------- mission page: camera capture + red threshold tuning ---------- */
+const TUNE = { on: false, thr: (() => { try { return +localStorage.getItem("tuneThr") || 40; } catch { return 40; } })() };
+const tuneBuf = document.createElement("canvas"); tuneBuf.width = 160; tuneBuf.height = 120;
+$("tuneThr").value = TUNE.thr; $("tuneThrV").textContent = TUNE.thr;
+$("tuneThr").oninput = () => {
+  TUNE.thr = +$("tuneThr").value; $("tuneThrV").textContent = TUNE.thr;
+  try { localStorage.setItem("tuneThr", TUNE.thr); } catch {}
+};
+function tuneTick() {
+  const cs = S.status && S.status.camera, live = S.page === "mission" && cs && cs.state === "live";
+  const img = $("tuneImg");
+  if (live && !TUNE.on) { img.src = "/api/cam.mjpg?t=" + Date.now(); TUNE.on = true; }
+  if (!live && TUNE.on) { img.removeAttribute("src"); TUNE.on = false; }
+  const cap = (S.status && S.status.capture) || {};
+  $("tuneState").textContent = cap.recording ? `REC ${cap.frames} frames, ${cap.seconds} s`
+    : live ? `live, ${cs.fps.toFixed(0)} fps` : cs ? (CAM_MSG[cs.state] || cs.state) : "";
+  $("tuneState").className = "ch-r " + (cap.recording ? "st-bad" : live ? "st-ok" : "");
+  $("btnRec").textContent = cap.recording ? "Stop recording" : "Record video";
+  $("btnRec").classList.toggle("armed", !!cap.recording);
+  $("btnPhoto").disabled = !live; $("btnRec").disabled = !live && !cap.recording;
+  if (!live || !img.naturalWidth) return;
+  const b = tuneBuf.getContext("2d", { willReadFrequently: true });
+  b.drawImage(img, 0, 0, 160, 120);
+  const d = b.getImageData(0, 0, 160, 120), px = d.data, m = $("tuneMask").getContext("2d"), out = m.createImageData(160, 120);
+  let n = 0, nC = 0;
+  for (let i = 0, k = 0; i < px.length; i += 4, k++) {
+    const red = px[i] - Math.max(px[i + 1], px[i + 2]) > TUNE.thr;
+    if (red) {
+      n++;
+      const x = k % 160 - 80, y = Math.floor(k / 160) - 60;
+      if (x * x + y * y < 35 * 35) nC++;
+    }
+    out.data[i] = red ? 255 : 0; out.data[i + 1] = red ? 60 : 0; out.data[i + 2] = red ? 60 : 0; out.data[i + 3] = 255;
+  }
+  m.putImageData(out, 0, 0);
+  $("tuneCount").textContent = `${n} red px (${(100 * n / 19200).toFixed(1)}%), ${nC} under drone`;
+}
+setInterval(tuneTick, 200);
+$("btnPhoto").onclick = async () => {
+  try { const r = await api("/api/cam/photo", {}); toast("Saved " + r.path); } catch (e) { toast(e.message, null, null, true); }
+};
+$("btnRec").onclick = async () => {
+  const on = !(S.status && S.status.capture && S.status.capture.recording);
+  try {
+    const r = await api("/api/cam/record", { on });
+    toast(on ? "Recording to " + r.dir : `Saved ${r.frames} frames (${r.seconds} s) to ${r.dir}`);
+    if (S.status) { S.status.capture = Object.assign({}, S.status.capture, { recording: on, frames: 0, seconds: 0 }); }
+  } catch (e) { toast(e.message, null, null, true); }
+};
+$("btnCapFolder").onclick = async () => { try { await api("/api/cam/folder", {}); } catch (e) { toast(e.message, null, null, true); } };

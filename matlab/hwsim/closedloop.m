@@ -5,9 +5,9 @@ function R = closedloop(opt)
 % opt fields: track [N E] waypoints (world), yaw0 spawn yaw (rad), Ktrue m/px at 0.8 m, armT s, T s, lineW m, circD m
 if nargin < 1, opt = struct; end
 d = struct('track', [0.5 1.0; 2.5 1.0; 2.45 3.0], 'yaw0', 0, 'Ktrue', 0.0051, 'armT', 5, 'T', 120, ...
-           'lineW', 0.1, 'circD', 0.2, 'vmax', 0.6, 'plot', '', 'pktDrop', 0, 'yawNoise', 0, 'flip', '');
+           'lineW', 0.1, 'circD', 0.2, 'vmax', 0.6, 'plot', '', 'pktDrop', 0, 'yawNoise', 0, 'flip', '', 'gdt', 0.2);
 f = fieldnames(d); for i = 1:numel(f), if ~isfield(opt, f{i}), opt.(f{i}) = d.(f{i}); end, end
-clear m_lineGuidance m_body2ned m_ned2body m_latestPacket
+clear m_lineGuidance m_body2ned m_ned2body m_latestPacket trackGuidance
 wp = opt.track; spawn = wp(1, :);
 dt = 0.02; N = round(opt.T / dt);
 p = [spawn 0]; v = [0 0 0]; yaw = opt.yaw0;      % truth (world NED)
@@ -22,7 +22,7 @@ for k = 1:N
         pkt = single([p(1) - spawn(1), p(2) - spawn(2), p(3), wrapToPi(yaw + opt.yawNoise * randn), 221]); valid = true;
     end
     if valid, [pos, en] = m_latestPacket(pkt, true); else, [pos, en] = m_latestPacket(single(zeros(1, 5)), false); end
-    if mod(k - 1, 10) == 0                         % 0.2 s: camera + guidance + localToNED
+    if mod(k - 1, round(opt.gdt / dt)) == 0       % camera + guidance + localToNED period
         if en
             mask = render(camPose, wp, opt, fpx, rpx);
             switch opt.flip, case 'lr', mask = fliplr(mask); case 'ud', mask = flipud(mask); case 'rot', mask = rot90(mask, 2); end

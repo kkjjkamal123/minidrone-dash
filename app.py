@@ -68,6 +68,7 @@ def main():
     app.start()
     port = free_port(UI_PORT)
     server.serve(app, port=port)
+    app.mission.port = port
     url = f"http://127.0.0.1:{port}/"
 
     if "--headless" in sys.argv:

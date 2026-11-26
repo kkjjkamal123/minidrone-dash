@@ -12,6 +12,8 @@ function gs_bridge(action, port)
 %     enable_tx / disable_tx   add / remove the telemetry sender (groundStationTx)
 %     set_ip <ip>   point the model at the Pi (set_drone_ip)
 %     sim           closed-loop test of the guidance code in the model, on four tracks
+%     quit          close this MATLAB
+%   gs_bridge('serve', port) is how the Ground Station starts a hidden MATLAB itself.
 
 if nargin < 1 || isempty(action), action = 'start'; end
 if nargin < 2 || isempty(port), port = 47801; end
@@ -24,6 +26,16 @@ end
 here = fileparts(mfilename('fullpath'));
 addpath(here);
 url = sprintf('http://127.0.0.1:%d/api/matlab/', port);
+setappdata(0, 'gs_bridge_quit', false);
+if strcmpi(action, 'serve')
+    % Started by the Ground Station itself (hidden MATLAB): poll in a loop until told to quit.
+    fprintf('gs_bridge serving the Ground Station on port %d.\n', port);
+    while ~getappdata(0, 'gs_bridge_quit')
+        tick(url, here);
+        pause(1);
+    end
+    exit;
+end
 t = timer('Name', 'gs_bridge', 'Period', 1, 'ExecutionMode', 'fixedSpacing', 'BusyMode', 'drop', ...
     'TimerFcn', @(~, ~) tick(url, here), 'ErrorFcn', @(~, ~) []);
 start(t);
@@ -111,6 +123,15 @@ switch cmd
     case 'sim'
         prep(mdl);
         runSim(mdl, here);
+    case 'quit'
+        fprintf('Closing MATLAB.\n');
+        setappdata(0, 'gs_bridge_quit', true);
+        t = timerfind('Name', 'gs_bridge');
+        if ~isempty(t)   % MATLAB the user opened: stop the bridge and quit after the result is posted
+            stop(t); delete(t);
+            q = timer('StartDelay', 1, 'TimerFcn', @(~, ~) exit);
+            start(q);
+        end
     otherwise
         error('Unknown command %s', cmd);
 end
@@ -164,7 +185,7 @@ bad = {};
 if i.simulation ~= 0, bad{end+1} = 'Simulation flag'; end
 if ~strcmp(i.tfinal, 'Inf'), bad{end+1} = 'stop time'; end
 if ~strcmp(i.extmode, 'off'), bad{end+1} = 'external mode'; end
-if ~contains(i.guidance, 'x70'), bad{end+1} = 'guidance is not x70'; end
+if ~contains(i.guidance, 'HARDWARE = true'), bad{end+1} = 'guidance HARDWARE flag'; end
 if isempty(bad), fprintf('ALL FLIGHT SETTINGS OK\n'); else, fprintf(2, 'CHECK: %s\n', strjoin(bad, ', ')); end
 end
 
@@ -180,11 +201,21 @@ i.extmode = get_param(mdl, 'ExtMode');
 i.dirty = get_param(mdl, 'Dirty');
 ch = find(sfroot, '-isa', 'Stateflow.EMChart', 'Path', [mdl '/Image processing and Guidance/lineGuidance']);
 if ~isempty(ch)
-    tok = regexp(ch.Script, '% (x\d+)[ (:]', 'tokens');
-    v = 'unknown';
-    if ~isempty(tok), v = max(cellfun(@(c) str2double(c{1}(2:end)), tok)); v = sprintf('x%d', v); end
+    src = ch.Script;
+    if contains(src, 'trackGuidance(')
+        % the chart is a wrapper: the guidance lives in perception/trackGuidance.m
+        v = 'trackGuidance';
+        tv = regexp(src, 'version (\w+)', 'tokens', 'once');
+        if ~isempty(tv), v = ['trackGuidance ' tv{1}]; end
+        f = which('trackGuidance');
+        if ~isempty(f), src = fileread(f); else, src = ''; v = [v ' (FILE MISSING)']; end
+    else
+        tok = regexp(src, '% (x\d+)[ (:]', 'tokens');
+        v = 'lineGuidance';
+        if ~isempty(tok), v = sprintf('lineGuidance x%d', max(cellfun(@(c) str2double(c{1}(2:end)), tok))); end
+    end
     hw = 'HARDWARE = true';
-    if ~contains(ch.Script, 'HARDWARE = true;'), hw = 'HARDWARE = FALSE (sim scene!)'; end
+    if isempty(regexp(src, 'HARDWARE\s*=\s*true', 'once')), hw = 'HARDWARE = FALSE (sim scene!)'; end
     i.guidance = sprintf('%s, %s', v, hw);
 end
 cam = [mdl '/Image processing and Guidance/get camera data/Rpi Camera Processing/Raspberry Pi Camera Video Capture'];
@@ -226,11 +257,15 @@ T = {'L track', [0.5 1.0; 2.5 1.0; 2.45 3.0]; ...
      'arena roof', [0.5 0.5; 1.3 1.2; 1.8 2.0; 1.5 2.8; 1.2 3.3]; ...
      'sharp 40 deg', [0.5 0.5; 0.5 3.0; 1.79 1.47]; ...
      'zigzag', [0.4 0.4; 1.6 0.4; 1.0 1.2; 2.4 1.6; 1.4 2.4; 1.6 3.4; 3.0 3.0]};
+gdt = 0.2;
+cam = [mdl '/Image processing and Guidance/get camera data/Rpi Camera Processing/Raspberry Pi Camera Video Capture'];
+if getSimulinkBlockHandle(cam) > 0, gdt = str2double(get_param(cam, 'SampleTime')); end
+fprintf('Guidance period %.2f s (camera sample time).\n', gdt);
 fprintf('Closed loop: model guidance + position link + simple PX4 follower + fake camera (0.0051 m/px, 0.2 m circle).\n');
 nok = 0;
 for k = 1:size(T, 1)
     rng(1);
-    R = closedloop(struct('track', T{k, 2}, 'T', 90));
+    R = closedloop(struct('track', T{k, 2}, 'T', 90, 'gdt', gdt));
     pass = R.landed && R.land < 0.15;
     nok = nok + pass;
     word = {'FAIL', 'PASS'};

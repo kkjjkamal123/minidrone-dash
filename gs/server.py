@@ -10,7 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import camera, link, mavlink, mission, store
+from . import camera, capture, link, mavlink, mission, store
 from . import protocol as P
 
 CRLF = bytes([13, 10])
@@ -30,6 +30,7 @@ class App:
         self.camera = camera.CameraLink(self.probe, self.settings)
         self.fc = mavlink.FcLink(self.hub, self.settings)
         self.mission = mission.Mission(self.probe, self.settings, self.camera)
+        self.capture = capture.Capture(self.camera)
         self.demo: link.Demo | None = None
         self._fw = {"present": None, "checked": 0.0}
 
@@ -85,6 +86,7 @@ class App:
             "camera": self.camera.status(),
             "fc": self.fc.status(),
             "mission": self.mission.status(),
+            "capture": self.capture.status(),
             "settings": self.settings,
             "flights_dir": str(store.flights_dir()),
             "sim_dirs": [str(p) for p in store.sim_dirs()],
@@ -170,6 +172,16 @@ def make_handler(app: App):
                 return self._json({"error": "forbidden"}, 403)
             b = self._body()
             try:
+                if u.path == "/api/cam/photo":
+                    return self._json({"ok": True, "path": app.capture.photo()})
+                if u.path == "/api/cam/record":
+                    if b.get("on"):
+                        return self._json({"ok": True, "dir": app.capture.start()})
+                    return self._json(dict(app.capture.stop(), ok=True))
+                if u.path == "/api/cam/folder":
+                    import os
+                    os.startfile(str(capture.captures_dir()))  # noqa: S606 - local folder only
+                    return self._json({"ok": True})
                 if u.path == "/api/pi/action":
                     return self._json(app.mission.run_pi(str(b.get("action", ""))))
                 if u.path == "/api/matlab/command":
